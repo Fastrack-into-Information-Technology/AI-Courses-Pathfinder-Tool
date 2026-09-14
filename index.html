@@ -603,6 +603,33 @@
     .notice,.access{break-inside:avoid}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+
+  /* ══════════ DEBUG BUILD ONLY - DELETE THIS BLOCK BEFORE RELEASE ══════════
+     The question-and-answer log. Never shown on screen; the printed itinerary
+     carries it on its own page after the route. Nothing above this comment
+     knows it exists, so removing the four marked blocks (this one, the
+     #dbgLog container in the results markup, the DBG section in the script,
+     and the one-line DBG.seen() call in render()) returns the tool to v5.2.
+     ─────────────────────────────────────────────────────────────────────── */
+  .dbg{display:none}
+  @media print{
+    .dbg{
+      display:block; break-before:page;
+      font-family:ui-monospace,"Cascadia Mono","Consolas","Courier New",monospace;
+      font-size:8.5pt; line-height:1.45; color:#000;
+    }
+    .dbg h2{font-family:inherit;font-size:11pt;letter-spacing:0;margin:0 0 2mm}
+    .dbg .dbgnote{margin:0 0 5mm;padding:2mm 3mm;border:1.5pt solid #000}
+    .dbg h3{font-family:inherit;font-size:9pt;letter-spacing:.08em;text-transform:uppercase;
+            margin:6mm 0 2mm;padding-bottom:1mm;border-bottom:.5pt solid #000}
+    .dbg dl{margin:0}
+    .dbg .dbgq{margin:0 0 3mm;break-inside:avoid}
+    .dbg .dbgq b{font-weight:700}
+    .dbg .dbgrow{margin:0;padding-left:9mm;text-indent:-9mm;white-space:pre-wrap;word-break:break-word}
+    .dbg .dbggate{color:#333}
+    .dbg .dbgmiss{color:#333;margin:0 0 1mm;white-space:pre-wrap}
+  }
+  /* ═══════════════════════ END DEBUG BUILD ONLY ═══════════════════════════ */
 </style>
 </head>
 <body>
@@ -708,6 +735,8 @@
         <button class="abtn alt" id="restartBtn">Start again</button>
       </div>
       <p class="smallprint" id="footerText"></p>
+      <!-- DEBUG BUILD ONLY - DELETE THIS LINE BEFORE RELEASE -->
+      <section class="dbg" id="dbgLog" aria-hidden="true"></section>
     </div>
 
     <div id="viewCat" role="tabpanel" aria-labelledby="tabCat" hidden>
@@ -1586,6 +1615,7 @@ const RESOURCES = [{"id":0,"n":"Foundations in Generative AI","p":"IBM SkillsBui
     if (i < 0) { i = 0; curId = seq[0].id; }
     const q = seq[i];
     const answered = seq.filter(x => answers[x.id] != null).length;
+    DBG.seen(q.id);   /* DEBUG BUILD ONLY - DELETE THIS LINE BEFORE RELEASE */
 
     drawLadder(seq, i);
     const num = String(i + 1).padStart(2, "0");
@@ -1810,9 +1840,220 @@ const RESOURCES = [{"id":0,"n":"Foundations in Generative AI","p":"IBM SkillsBui
       '<div class="noticebody">' + notes.map(x => '<p>' + esc(x) + '</p>').join('') + '</div></details>';
 
     buildTable();
+    DBG.draw(p);   /* DEBUG BUILD ONLY - DELETE THIS LINE BEFORE RELEASE */
     setTab("route");
     show("results");
   }
+
+  /* ══════════════════════════ DEBUG BUILD ONLY ══════════════════════════════
+     DELETE THIS WHOLE BLOCK BEFORE RELEASE.
+
+     A question-and-answer log for testing. It is hidden on screen (.dbg is
+     display:none) and appears only in the printed itinerary, on its own page
+     after the route, so the tool looks and behaves exactly as it did in v5.2.
+
+     It records, for this run:
+       - every question actually put on screen, in the order it appeared
+       - the option or options the learner chose, and what each one set, so a
+         wrong weight or level can be traced back to the answer that caused it
+       - for each optional question, which fact about the learner opened its
+         gate, in words, with the gate's own source alongside as ground truth
+       - the optional questions that stayed shut, and their gates
+
+     WHY is a parallel gloss of the `when` clauses in QUESTIONS, not the thing
+     the engine runs - it cannot change which questions appear. Each entry
+     returns the reasons that actually fired for this learner; if an entry ever
+     disagrees with the gate printed beside it, the gloss is the thing that is
+     wrong. Nothing outside this block, the .dbg CSS, the #dbgLog container and
+     the two marked one-line calls knows any of this exists.
+     ───────────────────────────────────────────────────────────────────────── */
+  const DBG = (function(){
+    const shown = [];                     /* question ids, in the order displayed */
+
+    const bagOf = (p, f) => {
+      const b = p[f + "All"];
+      return Array.isArray(b) ? b : (p[f] ? [p[f]] : []);
+    };
+    const hit  = (p, f, vals) => bagOf(p, f).filter(v => vals.indexOf(v) >= 0);
+    const csv = a => (a && a.length) ? a.join(", ") : "(none)";
+    const when = (test, text) => test ? [text] : [];
+
+    const WHO_WORK  = ["worker_nontech","worker_tech","manager","jobseeker","educator"];
+    const WHO_RULES = ["worker_nontech","worker_tech","manager","educator"];
+
+    /* p.tech is derived from five different answers, and it gates four
+       questions, so it is worth spelling out which of the five fired */
+    const techWhy = p => {
+      const r = [].concat(
+        when(hit(p, "who", ["worker_tech"]).length, "you are in a technical job"),
+        when(hit(p, "goal", ["tech_career"]).length, "you are aiming at a technical AI role"),
+        when((p.tasks || []).indexOf("code") >= 0, "you picked a coding task"),
+        when(["some","script","pro"].indexOf(p.code) >= 0, "your coding experience is '" + p.code + "'"),
+        when(p.useLvl >= 4, "you use AI daily (useLvl 4)"));
+      return r.length ? r.join(" + ") : "no trigger fired";
+    };
+    const useLvl = p => "useLvl " + (p.useLvl == null ? "unset" : p.useLvl);
+    const MGR = p => [].concat(
+      when(hit(p, "who", ["manager"]).length, "you carry management responsibility"),
+      when(hit(p, "goal", ["lead"]).length, "your goal is to decide how your organisation uses AI"));
+    const EDU = p => [].concat(
+      when(hit(p, "who", ["educator"]).length, "you teach or train other people"),
+      when(hit(p, "goal", ["teach"]).length, "your goal is to help other people learn"));
+
+    const WHY = {
+      prompt:       p => ["you have used AI before (" + useLvl(p) + " >= 1)"],
+      check:        p => ["you have used AI before (" + useLvl(p) + " >= 1)"],
+      custom:       p => ["you use AI for real work most weeks (" + useLvl(p) + " >= 3)",
+                          "you were not classed as technical"],
+      agents_aware: p => ["you use AI at least now and then (" + useLvl(p) + " >= 2)",
+                          "you were not classed as technical"],
+      sector:       p => ["you are working, studying or job-hunting: " + csv(hit(p, "who", WHO_WORK))],
+      tasks:        p => ["you are working, studying or job-hunting: " + csv(hit(p, "who", WHO_WORK))],
+      rules:        p => ["you answer to an employer or an institution: " + csv(hit(p, "who", WHO_RULES))],
+      sensitive:    p => ["you answer to an employer or an institution: " + csv(hit(p, "who", WHO_RULES))],
+      eu:           p => [].concat(
+                      when(hit(p, "who", ["manager"]).length, "you carry management responsibility"),
+                      when(p.sensitive === "yes", "you said you handle sensitive or personal data"),
+                      when(hit(p, "sector", ["legal"]).length, "you work in legal, compliance or regulation"),
+                      when(p.cur && p.cur.ETG >= 2, "your ethics and risk level is already " + (p.cur || {}).ETG)),
+      teachothers:  p => ["you use AI for real work most weeks (" + useLvl(p) + " >= 3)",
+                          "you had not already said you teach"],
+      code:         p => ["you were classed as technical - " + techWhy(p)],
+      want:         p => ["you were classed as technical - " + techWhy(p)],
+      python:       p => ["your coding experience is '" + p.code + "'"],
+      api:          p => ["your coding experience is '" + p.code + "'"],
+      ml:           p => ["you were classed as technical - " + techWhy(p),
+                          "your coding experience is '" + p.code + "', not 'none'"],
+      rag:          p => [].concat(
+                      when(["some","script","pro"].indexOf(p.code) >= 0, "your coding experience is '" + p.code + "'"),
+                      when((p.want || []).indexOf("rag") >= 0, "you said you want answers grounded in your own documents")),
+      ops:          p => [].concat(
+                      when(["script","pro"].indexOf(p.code) >= 0, "your coding experience is '" + p.code + "'"),
+                      when((p.want || []).indexOf("secure") >= 0, "you said you want something safe enough for real users")),
+      data_conf:    p => [].concat(
+                      when((p.tasks || []).indexOf("data") >= 0, "you picked a data task"),
+                      when(p.tech, "you were classed as technical"),
+                      when(hit(p, "who", ["manager"]).length, "you carry management responsibility")),
+      data_use:     p => [].concat(
+                      when((p.tasks || []).indexOf("data") >= 0, "you picked a data task"),
+                      when((p.want || []).indexOf("ml") >= 0, "you said you want a model that predicts or classifies")),
+      mgr_need:     MGR,
+      mgr_scope:    MGR,
+      mgr_own:      p => ["you named what you are responsible for: " + csv(p.mgr || [])],
+      edu_who:      EDU,
+      edu_need:     EDU,
+      edu_conf:     EDU,
+      job_stage:    p => [].concat(
+                      when(hit(p, "who", ["jobseeker"]).length, "you are looking for work or changing direction"),
+                      when(hit(p, "goal", ["job"]).length, "your goal is getting hired")),
+      job_cred:     p => [].concat(
+                      when(hit(p, "who", ["jobseeker"]).length, "you are looking for work or changing direction"),
+                      when(hit(p, "who", ["student"]).length, "you are studying or working out what to do next"),
+                      when(hit(p, "goal", ["job"]).length, "your goal is getting hired"))
+    };
+
+    /* what one chosen option did to the profile */
+    const effect = o => {
+      const b = [];
+      if (o.set) Object.keys(o.set).forEach(k => b.push(k + " = " + JSON.stringify(o.set[k])));
+      if (o.push) b.push("adds " + JSON.stringify(o.push));
+      if (o.lvl) Object.keys(o.lvl).forEach(k => b.push(k + " level " + o.lvl[k]));
+      if (o.cap) Object.keys(o.cap).forEach(k => b.push(k + " capped at " + o.cap[k]));
+      if (o.w)   Object.keys(o.w).forEach(k => b.push(k + " weight +" + o.w[k]));
+      return b.length ? b.join("; ") : "no effect on the profile";
+    };
+
+    const answerOf = q => {
+      const a = answers[q.id];
+      if (a == null) return null;
+      const ix = Array.isArray(a) ? a : [a];
+      return ix.map(i => q.opts[i]).filter(Boolean);
+    };
+
+    const row = (cls, s) => '<p class="' + cls + '">' + esc(s) + '</p>';
+
+    return {
+      /* called from render() every time a question goes on screen */
+      seen: id => { if (shown.indexOf(id) < 0) shown.push(id); },
+
+      draw: p => {
+        const host = document.getElementById("dbgLog");
+        if (!host) return;
+        const seq = visible(answers);
+        const ids = seq.map(q => q.id);
+        const H = [];
+
+        H.push('<h2>Debug log &mdash; question and answer history</h2>');
+        H.push('<div class="dbgnote">' +
+          row("dbgrow", "DEBUG BUILD. This page is hidden on screen and prints only here. " +
+                        "It is for testing and must be removed before release.") +
+          row("dbgrow", "Printed " + new Date().toString()) + '</div>');
+
+        H.push('<h3>Gate inputs &mdash; the derived facts the optional questions test</h3>');
+        H.push(row("dbgrow", "useLvl = " + (p.useLvl == null ? "unset" : p.useLvl) +
+          "   |   tech = " + !!p.tech + " (" + techWhy(p) + ")" +
+          "   |   code = " + (p.code || "unset") +
+          "   |   sensitive = " + (p.sensitive || "unset")));
+        H.push(row("dbgrow", "time = " + (p.time == null ? "unset (360 assumed)" : p.time) + " min" +
+          "   |   ambition = " + (p.ambition == null ? "unset" : p.ambition) +
+          "   |   cred = " + (p.cred || "unset") +
+          "   |   assumed level for unmeasured areas = " + p.base));
+        ["who","goal","sector","barrier"].forEach(f =>
+          H.push(row("dbgrow", f + " = " + csv(bagOf(p, f)))));
+        ["tasks","want","fmts","plats","mgr","edu","job"].forEach(f =>
+          H.push(row("dbgrow", f + " = " + csv(p[f] || []))));
+        H.push(row("dbgrow", "levels after derive: " +
+          CK.map(k => k + " " + p.cur[k] + (p.measured[k] ? "" : "*")).join("   ") +
+          "      (* estimated, not measured by a question)"));
+
+        H.push('<h3>Questions asked &mdash; ' + seq.length + ' of the ' + QUESTIONS.length +
+               ' in the bank, in the order they appeared</h3>');
+        seq.forEach((q, i) => {
+          const gated = !!q.when;
+          const why = gated ? ((WHY[q.id] || (() => []))(p)) : [];
+          const chosen = answerOf(q);
+          const B = [];
+          B.push(row("dbgrow", String(i + 1).padStart(2, "0") + " · " + q.id +
+            " · " + q.sec + " · " + (gated ? "OPTIONAL" : "always asked") +
+            (shown.indexOf(q.id) < 0 ? " · NEVER PUT ON SCREEN (gate opened after a later answer)" : "")));
+          B.push(row("dbgrow", "     Q: " + q.q));
+          if (gated) {
+            B.push(row("dbggate", "     shown because " +
+              (why.length ? why.join(", and ") : "(no gloss written for this gate - see the source below)")));
+            B.push(row("dbggate", "     gate: " + String(q.when)));
+          }
+          if (!chosen) B.push(row("dbgrow", "     A: (never reached)"));
+          else if (!chosen.length) B.push(row("dbgrow", "     A: (skipped - nothing picked, which is a valid answer)"));
+          else chosen.forEach(o => {
+            B.push(row("dbgrow", "     A: " + o.t));
+            B.push(row("dbgrow", "        → " + effect(o)));
+          });
+          H.push('<div class="dbgq">' + B.join('') + '</div>');
+        });
+
+        const dropped = shown.filter(id => ids.indexOf(id) < 0);
+        if (dropped.length) {
+          H.push('<h3>Answered, then dropped from the sequence (' + dropped.length + ')</h3>');
+          H.push(row("dbgrow", "These were on screen and answered, but a later change closed their gate, " +
+                               "so they are not in the sequence above and their answers still count in derive()."));
+          dropped.forEach(id => {
+            const q = QUESTIONS.filter(x => x.id === id)[0];
+            const chosen = q ? answerOf(q) : null;
+            H.push(row("dbgmiss", "  " + id + " · " + (q ? q.sec : "?") + " · answered: " +
+              (chosen && chosen.length ? chosen.map(o => o.t).join(" | ") : "(skipped)")));
+          });
+        }
+
+        const unasked = QUESTIONS.filter(q => ids.indexOf(q.id) < 0 && dropped.indexOf(q.id) < 0);
+        H.push('<h3>Optional questions not asked (' + unasked.length + ')</h3>');
+        unasked.forEach(q => H.push(row("dbgmiss",
+          "  " + q.id + " · " + q.sec + " · gate not met: " + String(q.when))));
+
+        host.innerHTML = H.join('');
+      }
+    };
+  })();
+  /* ════════════════════════ END DEBUG BUILD ONLY ════════════════════════════ */
 
   /* platforms the learner has not ticked - they still get the recommendation */
   let myPlats = [];
